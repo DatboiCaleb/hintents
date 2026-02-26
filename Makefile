@@ -73,31 +73,3 @@ bench-sim:
 # Run benchmarks with CPU profiling
 bench-profile:
 	go test -bench=. -benchmem -cpuprofile=cpu.prof ./internal/rpc ./internal/simulator
-
-# Docker targets
-docker-build:
-	docker build -t erst:local .
-
-docker-build-multiarch:
-	docker buildx build --platform linux/amd64,linux/arm64 -t erst:multiarch .
-
-docker-test:
-	./test_docker_build.sh
-
-docker-push:
-	@echo "Use GitHub Actions workflow for pushing to registry"
-	@echo "Or manually: docker push <registry>/erst:<tag>"
-
-
-# Formatting targets
-fmt: fmt-go fmt-rust
-
-fmt-go:
-	go fmt ./...
-	gofmt -w .
-
-fmt-rust:
-	cd simulator && cargo fmt
-
-pre-commit: fmt lint
-	@echo "Pre-commit checks passed"
