@@ -9,7 +9,7 @@ WORKDIR /app/simulator
 
 # Install build dependencies for cross-compilation
 # clang and lld are used as cross-linkers
-RUN apk add --no-cache musl-dev gcc clang lld
+RUN apk add --no-cache musl-dev gcc clang lld llvm
 
 # Copy Rust project files
 COPY simulator/Cargo.toml simulator/Cargo.lock ./
@@ -19,8 +19,11 @@ COPY simulator/src ./src
 # We use cross-compilation if TARGETARCH is arm64 to keep build times fast
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
   rustup target add aarch64-unknown-linux-musl && \
+  CC_aarch64_unknown_linux_musl=clang \
+  AR_aarch64_unknown_linux_musl=llvm-ar \
+  CFLAGS_aarch64_unknown_linux_musl="--target=aarch64-unknown-linux-musl" \
   CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=clang \
-  RUSTFLAGS="-C link-arg=-fuse-ld=lld -C target-feature=+crt-static" \
+  RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=lld -C link-arg=--target=aarch64-unknown-linux-musl -C target-feature=+crt-static" \
   cargo build --release --target aarch64-unknown-linux-musl && \
   cp target/aarch64-unknown-linux-musl/release/simulator target/release/erst-sim; \
   else \
