@@ -14,6 +14,8 @@ pub struct SourceMapper {
     git_repo: Option<GitRepository>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceLocation {
     pub file: String,
@@ -306,7 +308,7 @@ mod tests {
         let mapper = SourceMapper::new(wasm_bytes);
 
         assert!(!mapper.has_debug_symbols());
-        assert!(mapper.map_wasm_offset_to_source(0x1234).is_none());
+        assert!(mapper._map_wasm_offset_to_source(0x1234).is_none());
     }
 
     #[test]

@@ -18,6 +18,8 @@ pub struct SimulationRequest {
     pub wasm_path: Option<String>, // Added for local loading
     pub enable_optimization_advisor: bool,
     pub profile: Option<bool>,
+    pub _timestamp: Option<i64>,
+    pub resource_calibration: Option<ResourceCalibration>,
     /// RFC 3339 timestamp supplied by the caller.  Preserved for future use
     /// (e.g. time-locked contract logic); not yet consumed by the simulator.
     #[allow(dead_code)]

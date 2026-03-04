@@ -5,6 +5,7 @@
 
 mod config;
 mod gas_optimizer;
+mod debug_host_fn;
 mod git_detector;
 mod runner;
 mod source_map_cache;
@@ -19,12 +20,11 @@ use crate::source_mapper::SourceMapper;
 use crate::stack_trace::WasmStackTrace;
 use crate::types::*;
 use base64::Engine as _;
-use soroban_env_host::xdr::ReadXdr;
+use soroban_env_host::xdr::{ReadXdr, WriteXdr};
 use soroban_env_host::{
     xdr::{Operation, OperationBody},
     Host, HostError,
 };
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -35,23 +35,19 @@ use tracing_subscriber::{fmt, EnvFilter};
 const ERR_MEMORY_LIMIT_EXCEEDED: &str = "ERR_MEMORY_LIMIT_EXCEEDED";
 
 fn init_logger() {
-    // Check if the environment variable ERST_LOG_FORMAT is set to "json"
     let use_json = env::var("ERST_LOG_FORMAT")
         .map(|val| val.to_lowercase() == "json")
         .unwrap_or(false);
 
-    // Default to "info" level logging if not specified
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let subscriber = fmt::Subscriber::builder()
         .with_env_filter(filter)
-        .with_writer(std::io::stderr); // Write logs to stderr
+        .with_writer(std::io::stderr);
 
     if use_json {
-        // Output machine-parsable JSON
         subscriber.json().flatten_event(true).init();
     } else {
-        // Output human-readable text
         subscriber.compact().init();
     }
 }
@@ -193,6 +189,17 @@ fn execute_operations(
     Ok(logs)
 }
 
+/// Encode an ScVal to base64-encoded XDR, matching Soroban CLI output format.
+fn scval_to_xdr_base64(val: &soroban_env_host::xdr::ScVal) -> String {
+    base64::engine::general_purpose::STANDARD.encode(
+        val.to_xdr(soroban_env_host::xdr::Limits::none())
+            .unwrap_or_default(),
+    )
+}
+
+/// Encode a contract ID to lowercase hex, matching Soroban CLI output format.
+fn contract_id_to_hex(id: &soroban_env_host::xdr::ContractId) -> String {
+    hex::encode(&id.0 .0[..])
 fn transaction_fee_stroops(envelope: &soroban_env_host::xdr::TransactionEnvelope) -> u64 {
     match envelope {
         soroban_env_host::xdr::TransactionEnvelope::Tx(tx_v1) => tx_v1.tx.fee as u64,
@@ -276,9 +283,6 @@ fn categorize_events(events: &soroban_env_host::events::Events) -> Vec<Categoriz
                     .map(|t| format!("{t:?}"))
                     .collect::<Vec<String>>(),
             };
-            let data = match &e.event.body {
-                soroban_env_host::xdr::ContractEventBody::V0(v0) => format!("{:?}", v0.data),
-            };
 
             let wasm_instruction = extract_wasm_instruction(&topics, &data);
             CategorizedEvent {
@@ -317,13 +321,10 @@ fn categorize_events(events: &soroban_env_host::events::Events) -> Vec<Categoriz
 /// May panic if JSON serialization of the response fails (should not happen
 /// with valid `SimulationResponse` structures).
 fn main() {
-    // 1. Initialize the logger immediately
     init_logger();
 
-    // 2. Log that we started
     tracing::info!(event = "simulator_started", "Simulator initializing...");
 
-    // Read JSON from Stdin
     let mut buffer = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut buffer) {
         let res = SimulationResponse {
@@ -354,7 +355,6 @@ fn main() {
         return;
     }
 
-    // Parse Request
     let request: SimulationRequest = match serde_json::from_str(&buffer) {
         Ok(req) => req,
         Err(e) => {
@@ -384,7 +384,6 @@ fn main() {
         }
     };
 
-    // Decode Envelope XDR
     let envelope = match base64::engine::general_purpose::STANDARD.decode(&request.envelope_xdr) {
         Ok(bytes) => match soroban_env_host::xdr::TransactionEnvelope::from_xdr(
             bytes,
@@ -402,7 +401,6 @@ fn main() {
         }
     };
 
-    // Decode ResultMeta XDR
     eprintln!(
         "Debug: Received ResultMetaXdr len: {}",
         request.result_meta_xdr.len()
@@ -424,7 +422,10 @@ fn main() {
                     ) {
                         Ok(meta) => Some(meta),
                         Err(e) => {
-                            eprintln!("Warning: Failed to parse ResultMeta XDR: {}. Proceeding with empty storage.", e);
+                            eprintln!(
+                                "Warning: Failed to parse ResultMeta XDR: {}. Proceeding with empty storage.",
+                                e
+                            );
                             None
                         }
                     }
@@ -488,7 +489,6 @@ fn main() {
     // Populate Host Storage
     if let Some(entries) = &request.ledger_entries {
         for (key_xdr, entry_xdr) in entries {
-            // Decode Key
             let _key = match base64::engine::general_purpose::STANDARD.decode(key_xdr) {
                 Ok(b) => match soroban_env_host::xdr::LedgerKey::from_xdr(
                     b,
@@ -506,7 +506,6 @@ fn main() {
                 }
             };
 
-            // Decode Entry
             let _entry = match base64::engine::general_purpose::STANDARD.decode(entry_xdr) {
                 Ok(b) => match soroban_env_host::xdr::LedgerEntry::from_xdr(
                     b,
@@ -531,7 +530,6 @@ fn main() {
         }
     }
 
-    // Extract Operations and Simulate
     let operations = match &envelope {
         soroban_env_host::xdr::TransactionEnvelope::Tx(tx_v1) => &tx_v1.tx.operations,
         soroban_env_host::xdr::TransactionEnvelope::TxV0(tx_v0) => &tx_v0.tx.operations,
@@ -546,7 +544,6 @@ fn main() {
         execute_operations(&host, operations, &request, request.memory_limit, &mut coverage)
     }));
 
-    // Budget and Reporting
     let budget = host.budget_cloned();
     let cpu_insns = budget.get_cpu_insns_consumed().unwrap_or(0);
     let mem_bytes = budget.get_mem_bytes_consumed().unwrap_or(0);
@@ -578,7 +575,6 @@ fn main() {
 
     let mut flamegraph_svg = None;
     if request.profile.unwrap_or(false) {
-        // Simple simulated flamegraph for demonstration
         let folded_data = format!("Total;CPU {}\nTotal;Memory {}\n", cpu_insns, mem_bytes);
         let mut result_vec = Vec::new();
         let mut options = inferno::flamegraph::Options::default();
@@ -616,7 +612,6 @@ fn main() {
 
     match result {
         Ok(Ok(exec_logs)) => {
-            // Extract both raw event strings and structured diagnostic events
             let (events, diagnostic_events): (Vec<String>, Vec<DiagnosticEvent>) =
                 match host.get_events() {
                     Ok(evs) => {
@@ -625,7 +620,7 @@ fn main() {
                         let diag_events: Vec<DiagnosticEvent> = (evs.0)
                             .iter()
                             .map(|event| {
-                                let event_type = match &event.event.type_ {
+                                let event_type = match event.event.type_ {
                                     soroban_env_host::xdr::ContractEventType::Contract => {
                                         "contract".to_string()
                                     }
@@ -637,17 +632,14 @@ fn main() {
                                     }
                                 };
 
-                                let contract_id = event
-                                    .event
-                                    .contract_id
-                                    .as_ref()
-                                    .map(|contract_id| format!("{:?}", contract_id));
+                                let contract_id =
+                                    event.event.contract_id.as_ref().map(contract_id_to_hex);
 
                                 let (topics, data) = match &event.event.body {
                                     soroban_env_host::xdr::ContractEventBody::V0(v0) => {
                                         let topics: Vec<String> =
-                                            v0.topics.iter().map(|t| format!("{:?}", t)).collect();
-                                        let data = format!("{:?}", v0.data);
+                                            v0.topics.iter().map(scval_to_xdr_base64).collect();
+                                        let data = scval_to_xdr_base64(&v0.data);
                                         (topics, data)
                                     }
                                 };
@@ -671,7 +663,6 @@ fn main() {
                     ),
                 };
 
-            // Capture categorized events for analyzer
             let categorized_events = match host.get_events() {
                 Ok(evs) => categorize_events(&evs),
                 Err(_) => vec![],
@@ -684,6 +675,14 @@ fn main() {
                 format!("CPU Instructions Used: {}", cpu_insns),
                 format!("Memory Bytes Used: {}", mem_bytes),
             ];
+            let contract_debug_logs: Vec<String> = match host.get_events() {
+                Ok(ref evs) => debug_host_fn::extract_debug_logs(evs)
+                    .into_iter()
+                    .map(|msg| format!("[debug] {}", msg))
+                    .collect(),
+                Err(_) => vec![],
+            };
+            final_logs.extend(contract_debug_logs);
             final_logs.extend(exec_logs);
 
             if let Some(required_fee) = mocked_required_fee_stroops(

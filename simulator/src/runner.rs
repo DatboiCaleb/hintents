@@ -150,6 +150,7 @@ mod tests {
 
         assert_eq!(res_a + res_b, 30);
     }
+}
 
     #[test]
     fn test_wipe_ledger_state_preserving_modules_without_cache() {
