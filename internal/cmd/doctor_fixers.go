@@ -44,7 +44,7 @@ func FixSimulatorBinary(verbose bool) error {
 		binaryName = "erst-sim.exe"
 	}
 	binaryPath := filepath.Join("simulator", "target", "release", binaryName)
-	
+
 	if _, err := os.Stat(binaryPath); err != nil {
 		return fmt.Errorf("binary not found after build: %s", binaryPath)
 	}

@@ -258,9 +258,9 @@ func TestDependencyStatusFixable(t *testing.T) {
 // FIXED: TestDependencyIDDispatch verifies ID-based routing (Issue #8)
 func TestDependencyIDDispatch(t *testing.T) {
 	tests := []struct {
-		name   string
-		depID  DependencyID
-		found  bool
+		name  string
+		depID DependencyID
+		found bool
 	}{
 		{"CacheDir", DepCacheDir, true},
 		{"Simulator", DepSimulator, true},
@@ -387,6 +387,7 @@ func TestDependencyStatusFieldsSet(t *testing.T) {
 		}
 	}
 }
+
 // TestCheckDeepLink_Name verifies the check returns the correct display name.
 func TestCheckDeepLink_Name(t *testing.T) {
 	dep := checkDeepLink(false)
