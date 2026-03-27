@@ -19,6 +19,7 @@ import (
 
 	"github.com/dotandev/hintents/internal/config"
 	"github.com/dotandev/hintents/internal/decenstorage"
+	simtypes "github.com/dotandev/hintents/internal/types"
 	"github.com/dotandev/hintents/internal/decoder"
 	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/logger"
@@ -1104,6 +1105,18 @@ func collectContractIDsFromDiagnosticEvents(events []simulator.DiagnosticEvent) 
 func printSimulationResult(network string, res *simulator.SimulationResponse) {
 	fmt.Printf("\n--- Result for %s ---\n", network)
 	fmt.Printf("Status: %s\n", res.Status)
+
+	// Determine and display snapshot status
+	hasOOM := res.BudgetUsage != nil && res.BudgetUsage.MemoryUsagePercent >= 99.0
+	snapshotStatus := simtypes.DetermineSnapshotStatus(
+		len(res.Events)+len(res.DiagnosticEvents),
+		len(res.DiagnosticEvents),
+		hasOOM,
+	)
+	fmt.Printf("Snapshot Status: %s\n", snapshotStatus)
+	if !snapshotStatus.IsHealthy() {
+		fmt.Printf("  %s\n", snapshotStatus.StatusMessage())
+	}
 	if res.Error != "" {
 		fmt.Printf("Error: %s\n", res.Error)
 	}
