@@ -783,10 +783,13 @@ fn main() {
             let _error_msg = format!("{:?}", host_error);
             let decoded_msg = decode_error(&error_debug);
 
-            let wasm_trace =
-                WasmStackTrace::from_host_error(&error_debug, source_mapper.as_ref());
+            let wasm_trace = WasmStackTrace::from_host_error(&error_debug, source_mapper.as_ref());
 
-            if wasm_trace.frames.iter().any(|f| f.source_location.is_some()) {
+            if wasm_trace
+                .frames
+                .iter()
+                .any(|f| f.source_location.is_some())
+            {
                 eprintln!("Source locations resolved for HostError trace.");
             } else {
                 eprintln!("No source locations resolved for HostError trace.");
@@ -930,7 +933,11 @@ fn main() {
             if let Some(ref mapper) = source_mapper {
                 eprintln!("Attempting to resolve sources for Panic trace...");
                 wasm_trace.resolve_sources(mapper);
-                if wasm_trace.frames.iter().any(|f| f.source_location.is_some()) {
+                if wasm_trace
+                    .frames
+                    .iter()
+                    .any(|f| f.source_location.is_some())
+                {
                     eprintln!("Source locations resolved for Panic trace.");
                 } else {
                     eprintln!("No source locations resolved for Panic trace.");
