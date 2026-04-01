@@ -12,6 +12,12 @@ import (
 	"syscall"
 )
 
+// sigWINCH is signal 28 (SIGWINCH) expressed as a raw syscall.Signal so that
+// the constant compiles on Windows, where syscall.SIGWINCH is not defined.
+// On Windows this signal never fires from the OS; the runtime.GOOS guard in
+// ListenResize ensures we never register it there.
+const sigWINCH = syscall.Signal(28)
+
 // Pane identifies which half of the split screen currently has keyboard focus.
 type Pane int
 
@@ -84,27 +90,22 @@ func (l *SplitLayout) RightWidth() int {
 // ListenResize starts a goroutine that updates Width/Height whenever the
 // terminal is resized and signals the caller via the returned channel.
 //
-// On Unix/Linux/macOS this installs a SIGWINCH handler.
-// On Windows SIGWINCH does not exist, so the channel is returned as-is and
-// the caller can poll TermSize() in the event loop instead.
+// On Unix/Linux/macOS this installs a SIGWINCH (signal 28) handler.
+// On Windows SIGWINCH never fires, so the channel is returned as-is and
+// the caller can poll TermSize() in the event loop to detect resizes.
 func (l *SplitLayout) ListenResize() <-chan struct{} {
 	if runtime.GOOS == "windows" {
-		// Windows has no SIGWINCH — return the channel unfired.
-		// The event loop should call TermSize() periodically and compare
-		// against l.Width/l.Height to detect resizes.
 		return l.resizeCh
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGWINCH)
+	signal.Notify(sig, sigWINCH)
 
 	go func() {
 		for range sig {
 			w, h := TermSize()
 			l.Width = w
 			l.Height = h
-			// Non-blocking send — skip if the consumer hasn't processed the
-			// previous event yet.
 			select {
 			case l.resizeCh <- struct{}{}:
 			default:
