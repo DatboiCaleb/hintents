@@ -40,7 +40,11 @@ impl HarnessContext {
                 request.rewind_step.unwrap_or(0)
             );
             if let Some(params) = &request.fork_params {
-                replay_log.push_str(&format!(", fork_params={}", serde_json::to_string(params).unwrap_or_default()));
+//                 replay_log.push_str(&format!(", fork_params={}", serde_json::to_string(params).unwrap_or_default()));
+                replay_log.push_str(&format!(
+                    ", fork_params={}",
+                    serde_json::to_string(params).unwrap_or_default()
+                ));
             }
             logs.push(replay_log);
             return logs;
