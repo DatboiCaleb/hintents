@@ -203,6 +203,14 @@ func (v *InteractiveViewer) handleCommand(command string) bool {
 	case "b", "p", "prev", "back", "backward":
 		v.navHistory.Push(v.trace.CurrentStep)
 		v.stepBackward()
+	case "0", "home", "start":
+		v.jumpToStep("0")
+	case "$", "end":
+		if len(v.trace.States) == 0 {
+			fmt.Printf("%s no states available\n", visualizer.Error())
+			return false
+		}
+		v.jumpToStep(strconv.Itoa(len(v.trace.States) - 1))
 	case "f", "filter":
 		v.cycleEventFilter()
 	case "j", "jump":
@@ -929,6 +937,12 @@ func (v *InteractiveViewer) showHelp() {
 	fmt.Printf("\n%s Keyboard Shortcuts\n", visualizer.Symbol("book"))
 	fmt.Println(separator(termW))
 	fmt.Println("Navigation:")
+	fmt.Println("  j, jump <step>       - Jump to step")
+	fmt.Println("  s, show, state       - Show current state")
+	fmt.Println("  l, list [count]      - List nearby steps")
+	fmt.Println("  i, info              - Show navigation info")
+	fmt.Println("  f, filter            - Cycle event filter")
+	fmt.Println("  S                    - Toggle core::* traces")
 	fmt.Println("  n, next, forward        - Step forward")
 	fmt.Println("  b, p, prev, back        - Step backward")
 	fmt.Println("  j, jump <step>          - Jump to specific step")
@@ -951,21 +965,25 @@ func (v *InteractiveViewer) showHelp() {
 	fmt.Println("  c, collapse             - Collapse current node")
 	fmt.Println("  E                       - Toggle expand/collapse all")
 	fmt.Println()
-	fmt.Println("Filter:")
-	fmt.Println("  f, filter               - Cycle filter by event type (trap, contract_call, host_function, auth)")
+	fmt.Println("Time-Travel:")
+	fmt.Println("  n, next, forward     - Next step")
+	fmt.Println("  b, p, prev, back     - Previous step")
+	fmt.Println("  0, home, start       - First step")
+	fmt.Println("  $, end               - Last step")
+	fmt.Println("  rc, reconstruct      - Rebuild state")
+	fmt.Println("  r, replay [k=v ...]  - Fork and replay")
+	fmt.Println("  t, trap              - Show trap details")
 	fmt.Println()
 	fmt.Println("Search:")
-	fmt.Println("  /                       - Start search")
-	fmt.Println("  n                       - Next search match")
-	fmt.Println("  N                       - Previous search match")
-	fmt.Println("  ESC                     - Clear search / cancel input")
+	fmt.Println("  /                    - Start search")
+	fmt.Println("  n / N                - Next/previous match")
+	fmt.Println("  ESC                  - Clear search")
 	fmt.Println()
 	fmt.Println("Other:")
-	fmt.Println("  h, help              - Show this help")
-	fmt.Println("  y, yank <a/r> [idx]  - Copy raw XDR (a: arg, r: return)")
+	fmt.Println("  sp, split            - Open expanded split pane")
+	fmt.Println("  ?, h, help           - Show this help")
+	fmt.Println("  y, yank <a/r> [idx]  - Copy raw XDR")
 	fmt.Println("  q, quit, exit        - Exit viewer")
-	fmt.Println("  ?, h, help              - Show this help")
-	fmt.Println("  q, quit, exit           - Exit viewer")
 }
 
 // handleYank copies raw XDR values to the clipboard
