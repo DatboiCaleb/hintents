@@ -111,7 +111,7 @@ fn generate_lcov_report(coverage: &CoverageTracker, source_file: &str) -> String
         .iter()
         .map(|(name, count)| (name.as_str(), *count))
         .collect();
-    functions.sort_by(|(a, _), (b, _)| a.cmp(b));
+    functions.sort_by_key(|&(a, _)| a);
 
     let mut report = String::new();
     report.push_str("TN:simulator\n");
