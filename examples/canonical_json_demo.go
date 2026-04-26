@@ -63,7 +63,7 @@ func main() {
 	fmt.Println("3. Demonstrating deterministic hashing...")
 	fmt.Println("   Generating the same payload 5 times...")
 
-	s, _ := signer.NewInMemorySigner(privateKeyHex)
+	s, _ = signer.NewInMemorySigner(privateKeyHex)
 	hashes := make([]string, 5)
 	for i := 0; i < 5; i++ {
 		var genLog *cmd.AuditLog
@@ -151,7 +151,7 @@ func main() {
 	// Example 8: Cross-platform hash consistency
 	fmt.Println("8. Cross-platform consistency guarantee...")
 
-	s, _ := signer.NewInMemorySigner(privateKeyHex)
+	s, _ = signer.NewInMemorySigner(privateKeyHex)
 	log1, _ := cmd.GenerateWithSigner("tx1", "envelope", "result", []string{"e1"}, []string{"l1"}, s, nil)
 	log2, _ := cmd.GenerateWithSigner("tx1", "envelope", "result", []string{"e1"}, []string{"l1"}, s, nil)
 
