@@ -5,10 +5,14 @@ package visualizer
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/dotandev/hintents/internal/decoder"
 )
+
+var elapsedPattern = regexp.MustCompile(`(?i)elapsed(?:[_\s-]*time)?(?:[_\s-]*(ms|us|ns|s))?[\s:=]+([0-9]+(?:\.[0-9]+)?)`)
 
 // GenerateCallGraphSVG generates a premium SVG call graph from a decoder.CallNode tree
 func GenerateCallGraphSVG(root *decoder.CallNode) string {
@@ -18,7 +22,7 @@ func GenerateCallGraphSVG(root *decoder.CallNode) string {
 
 	// Layout and dimensions
 	nodeWidth := 200
-	nodeHeight := 80
+	nodeHeight := 96
 	horizontalGap := 40
 	verticalGap := 60
 	legendHeight := 56

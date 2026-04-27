@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dotandev/hintents/internal/endpoints"
 	"github.com/dotandev/hintents/internal/errors"
 )
 
@@ -96,7 +97,7 @@ var validLogLevels = map[string]bool{
 }
 
 var defaultConfig = &Config{
-	RpcUrl:           "https://soroban-testnet.stellar.org",
+	RpcUrl:           endpoints.SorobanTestnet,
 	Network:          NetworkTestnet,
 	SimulatorPath:    "",
 	LogLevel:         "info",
@@ -205,11 +206,11 @@ func (c *Config) Validate() error {
 func (c *Config) NetworkURL() string {
 	switch c.Network {
 	case NetworkPublic:
-		return "https://soroban.stellar.org"
+		return endpoints.SorobanMainnet
 	case NetworkTestnet:
-		return "https://soroban-testnet.stellar.org"
+		return endpoints.SorobanTestnet
 	case NetworkFuturenet:
-		return "https://soroban-futurenet.stellar.org"
+		return endpoints.SorobanFuturenet
 	case NetworkStandalone:
 		return "http://localhost:8000"
 	default:
