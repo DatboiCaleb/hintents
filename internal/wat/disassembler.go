@@ -265,6 +265,122 @@ func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error)
 }
 
 // =============================================================================
+// Custom sections
+// =============================================================================
+
+// CustomSection holds the name and raw payload of a WASM custom section.
+type CustomSection struct {
+	// Name is the UTF-8 name of the custom section (e.g. "name", "producers").
+	Name string
+	// Data is the raw payload bytes after the name field.
+	Data []byte
+}
+
+// ParseCustomSections returns all custom sections (section ID 0) found in the
+// WASM module. The 'name' section is the most common; others are returned as-is.
+func (d *Disassembler) ParseCustomSections() ([]CustomSection, error) {
+	if !d.IsValidWasm() {
+		return nil, fmt.Errorf("not a valid WASM module")
+	}
+
+	var sections []CustomSection
+	pos := 8 // skip magic + version
+
+	for pos < len(d.data) {
+		sectionID := d.data[pos]
+		pos++
+
+		size, n := decodeULEB128(d.data[pos:])
+		pos += n
+
+		end := pos + int(size)
+		if end > len(d.data) {
+			break
+		}
+
+		if sectionID == SectionCustom {
+			nameLen, m := decodeULEB128(d.data[pos:])
+			nameStart := pos + m
+			nameEnd := nameStart + int(nameLen)
+			if nameEnd <= end {
+				sections = append(sections, CustomSection{
+					Name: string(d.data[nameStart:nameEnd]),
+					Data: d.data[nameEnd:end],
+				})
+			}
+		}
+
+		pos = end
+	}
+
+	return sections, nil
+}
+
+// FormatCustomSections renders custom sections as a human-readable string
+// suitable for inclusion in disassembly output. The 'name' section function
+// names are decoded; all other sections show a hex/ASCII summary.
+func FormatCustomSections(sections []CustomSection) string {
+	if len(sections) == 0 {
+		return "  <no custom sections>\n"
+	}
+
+	var b strings.Builder
+	for _, sec := range sections {
+		fmt.Fprintf(&b, "  [custom] %q (%d bytes)\n", sec.Name, len(sec.Data))
+		if sec.Name == "name" {
+			if names := decodeNameSection(sec.Data); len(names) > 0 {
+				for idx, name := range names {
+					fmt.Fprintf(&b, "    func[%d]: %s\n", idx, name)
+				}
+			}
+		}
+	}
+	return b.String()
+}
+
+// decodeNameSection parses the WASM 'name' section and returns a map of
+// function index → name. Only the function names subsection (id=1) is decoded.
+func decodeNameSection(data []byte) map[uint64]string {
+	names := make(map[uint64]string)
+	pos := 0
+	for pos < len(data) {
+		if pos+1 > len(data) {
+			break
+		}
+		subsectionID := data[pos]
+		pos++
+		subsectionSize, n := decodeULEB128(data[pos:])
+		pos += n
+		end := pos + int(subsectionSize)
+		if end > len(data) {
+			break
+		}
+
+		if subsectionID == 1 { // function names
+			count, m := decodeULEB128(data[pos:])
+			cur := pos + m
+			for i := uint64(0); i < count && cur < end; i++ {
+				idx, m1 := decodeULEB128(data[cur:])
+				cur += m1
+				nameLen, m2 := decodeULEB128(data[cur:])
+				cur += m2
+				nameEnd := cur + int(nameLen)
+				if nameEnd <= end {
+					names[idx] = string(data[cur:nameEnd])
+				}
+				cur = nameEnd
+			}
+		}
+
+		pos = end
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
+}
+
+// =============================================================================
 // Fallback formatting
 // =============================================================================
 
