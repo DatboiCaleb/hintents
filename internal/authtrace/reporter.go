@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -35,7 +34,6 @@ func (r *DetailedReporter) GenerateReport() string {
 	fmt.Fprintf(&sb, "Account: %s\n", r.trace.AccountID)
 	fmt.Fprintf(&sb, "Total Signers: %d\n", r.trace.SignerCount)
 	fmt.Fprintf(&sb, "Valid Signatures: %d\n\n", r.trace.ValidSignatures)
-	r.writeMultiSigRequirement(&sb)
 	if expirationLedger, ok := r.findExpirationLedger(); ok {
 		fmt.Fprintf(&sb, "  Expiration Ledger: %d\n\n", expirationLedger)
 	}
