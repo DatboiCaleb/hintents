@@ -16,8 +16,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // =============================================================================
@@ -232,28 +234,67 @@ func (d *Disassembler) findCodeSection() (int, int, error) {
 	return 0, 0, fmt.Errorf("code section not found")
 }
 
-// decodeInstructions decodes WASM instructions from the given byte range.
-func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error) {
+// parallelThreshold is the minimum number of functions required to trigger
+// parallel decoding. Below this, sequential decoding is used.
+const parallelThreshold = 16
+
+// funcBodyRange holds the byte range [start, end) of a single function body
+// within the WASM module.
+type funcBodyRange struct {
+	start int
+	end   int
+}
+
+// parseFunctionBodies returns the byte ranges of each function body in the
+// code section. start/end delimit the code section payload (after the magic
+// and version). The returned ranges point into d.data.
+func (d *Disassembler) parseFunctionBodies(start, end int) ([]funcBodyRange, error) {
 	if start >= len(d.data) || end > len(d.data) || start >= end {
 		return nil, fmt.Errorf("invalid byte range [%d, %d)", start, end)
 	}
 
-	// Skip the function count at the beginning of the code section
 	pos := start
-	_, n := decodeULEB128(d.data[pos:])
+	count, n := decodeULEB128(d.data[pos:])
 	pos += n
 
-	var instructions []Instruction
+	bodies := make([]funcBodyRange, 0, count)
+	for i := uint64(0); i < count && pos < end; i++ {
+		bodySize, m := decodeULEB128(d.data[pos:])
+		bodyStart := pos + m
+		bodyEnd := bodyStart + int(bodySize)
+		if bodyEnd > end {
+			bodyEnd = end
+		}
+		bodies = append(bodies, funcBodyRange{start: bodyStart, end: bodyEnd})
+		pos = bodyEnd
+	}
+	return bodies, nil
+}
 
+// decodeFuncBody decodes instructions from a single function body byte range.
+// A function body starts with a local-variable declaration block that must be
+// skipped before the actual instructions begin.
+func (d *Disassembler) decodeFuncBody(body funcBodyRange) []Instruction {
+	pos := body.start
+	end := body.end
+
+	// Skip local declarations: localCount groups of (count, type).
+	localCount, n := decodeULEB128(d.data[pos:])
+	pos += n
+	for i := uint64(0); i < localCount && pos < end; i++ {
+		_, m1 := decodeULEB128(d.data[pos:]) // count
+		pos += m1
+		pos++ // valtype byte
+	}
+
+	var insts []Instruction
 	for pos < end {
 		instOffset := uint64(pos)
 		opcode := d.data[pos]
 		pos++
-
 		mnemonic, operands, consumed := decodeOpcode(opcode, d.data[pos:])
 		pos += consumed
-
-		instructions = append(instructions, Instruction{
+		insts = append(insts, Instruction{
 			Offset:   instOffset,
 			Opcode:   opcode,
 			Mnemonic: mnemonic,
@@ -261,7 +302,56 @@ func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error)
 			Size:     1 + consumed,
 		})
 	}
+	return insts
+}
 
+// decodeInstructions decodes WASM instructions from the given byte range.
+// When the code section contains at least parallelThreshold function bodies,
+// each body is decoded concurrently.
+func (d *Disassembler) decodeInstructions(start, end int) ([]Instruction, error) {
+	if start >= len(d.data) || end > len(d.data) || start >= end {
+		return nil, fmt.Errorf("invalid byte range [%d, %d)", start, end)
+	}
+
+	bodies, err := d.parseFunctionBodies(start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(bodies) < parallelThreshold {
+		// Sequential path for small contracts.
+		var instructions []Instruction
+		for _, b := range bodies {
+			instructions = append(instructions, d.decodeFuncBody(b)...)
+		}
+		return instructions, nil
+	}
+
+	// Parallel path: decode each function body in its own goroutine.
+	results := make([][]Instruction, len(bodies))
+	var wg sync.WaitGroup
+	wg.Add(len(bodies))
+	for i, b := range bodies {
+		i, b := i, b
+		go func() {
+			defer wg.Done()
+			results[i] = d.decodeFuncBody(b)
+		}()
+	}
+	wg.Wait()
+
+	// Merge in order and sort by offset to maintain a stable, ordered slice.
+	var total int
+	for _, r := range results {
+		total += len(r)
+	}
+	instructions := make([]Instruction, 0, total)
+	for _, r := range results {
+		instructions = append(instructions, r...)
+	}
+	sort.Slice(instructions, func(i, j int) bool {
+		return instructions[i].Offset < instructions[j].Offset
+	})
 	return instructions, nil
 }
 
