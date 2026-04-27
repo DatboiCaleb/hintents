@@ -1,99 +1,146 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
-	"github.com/dotandev/hintents/internal/db"
+	"github.com/dotandev/hintents/internal/config"
+	"github.com/dotandev/hintents/internal/errors"
+	"github.com/dotandev/hintents/internal/rpc"
 	"github.com/spf13/cobra"
 )
 
 var (
-	searchErrorFlag string
-	searchEventFlag string
-	searchTxFlag    string
-	searchLimitFlag int
+	searchLimitFlag      int
+	searchNetworkFlag    string
+	searchHorizonURLFlag string
+	searchMaxPagesFlag   int
 )
 
 var searchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Search through saved debugging sessions",
-	Long: `Search through the history of debugging sessions to find past transactions,
-errors, or events. Supports regex patterns for flexible matching.
+	Use:     "search <query>",
+	GroupID: "management",
+	Short:   "Find contracts by symbol, creator, or contract ID",
+	Long: `Search contracts on Horizon/Soroban-backed networks using one query string.
 
-You can search by:
-  • Transaction hash (exact match)
-  • Error message patterns (regex)
-  • Event patterns (regex)
-  • Combine multiple filters
+The query is matched against:
+  - contract symbol (when available from Horizon metadata)
+  - creator/sponsor account address
+  - partial contract ID
 
-Results are ordered by timestamp (most recent first) and limited by --limit flag.`,
-	Example: `  # Search for specific transaction
-  erst search --tx abc123...def789
+Search walks Horizon contract pages with a bounded scan (see --max-pages). Results can be
+incomplete on large networks; a warning is printed when the scan stops before the catalog ends.
 
-  # Find sessions with specific error patterns
-  erst search --error "insufficient balance"
+For a full Stellar account strkey (56 characters starting with G), Horizon sponsor= filtering is used when supported.`,
+	Example: `  # Find token contracts by symbol
+  erst search usdc --network testnet
 
-  # Search for contract events
-  erst search --event "transfer|mint"
+  # Find contracts by creator account
+  erst search GABCDEF... --network testnet
 
-  # Combine filters and limit results
-  erst search --error "panic" --limit 5`,
-	Args: cobra.NoArgs,
+  # Find contracts by partial contract ID
+  erst search CAXYZ --network testnet
+
+  # Increase page walk limit (default scales with ERST_CONTRACT_SEARCH_MAX_PAGES)
+  erst search usdc --network testnet --max-pages 50`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		store, err := db.InitDB()
-		if err != nil {
-			return fmt.Errorf("Error: failed to initialize session database: %w", err)
+		network := strings.TrimSpace(searchNetworkFlag)
+		switch rpc.Network(network) {
+		case rpc.Testnet, rpc.Mainnet, rpc.Futurenet:
+		default:
+			return errors.WrapInvalidNetwork(network)
 		}
 
-		params := db.SearchParams{
-			TxHash:     searchTxFlag,
-			ErrorRegex: searchErrorFlag,
-			EventRegex: searchEventFlag,
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+
+		horizonURL := strings.TrimSpace(searchHorizonURLFlag)
+		if horizonURL == "" {
+			switch rpc.Network(network) {
+			case rpc.Mainnet:
+				horizonURL = rpc.MainnetHorizonURL
+			case rpc.Futurenet:
+				horizonURL = rpc.FuturenetHorizonURL
+			default:
+				horizonURL = rpc.TestnetHorizonURL
+			}
+		}
+
+		maxPages := searchMaxPagesFlag
+		if maxPages == 0 {
+			if v := strings.TrimSpace(os.Getenv("ERST_CONTRACT_SEARCH_MAX_PAGES")); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					maxPages = n
+				}
+			}
+		}
+
+		res, err := rpc.SearchContracts(cmd.Context(), rpc.SearchContractsOptions{
+			Query:      args[0],
+			HorizonURL: horizonURL,
 			Limit:      searchLimitFlag,
-		}
-
-		sessions, err := store.SearchSessions(params)
+			Timeout:    time.Duration(cfg.RequestTimeout) * time.Second,
+			MaxPages:   maxPages,
+		})
 		if err != nil {
-			return fmt.Errorf("Error: search failed: %w", err)
+			return fmt.Errorf("search failed: %w", err)
 		}
 
-		if len(sessions) == 0 {
-			fmt.Println("No matching sessions found.")
+		if len(res.Results) == 0 {
+			fmt.Println("No matching contracts found.")
+			if res.IncompleteScan {
+				printContractSearchIncompleteWarning(res)
+			}
 			return nil
 		}
 
-		fmt.Printf("Found %d matching sessions:\n", len(sessions))
-		for _, s := range sessions {
+		fmt.Printf("Found %d matching contracts on %s:\n", len(res.Results), network)
+		for _, contract := range res.Results {
 			fmt.Println("--------------------------------------------------")
-			fmt.Printf("ID: %d\n", s.ID)
-			fmt.Printf("Time: %s\n", s.Timestamp.Format("2006-01-02 15:04:05"))
-			fmt.Printf("Tx Hash: %s\n", s.TxHash)
-			fmt.Printf("Network: %s\n", s.Network)
-			fmt.Printf("Status: %s\n", s.Status)
-			if s.ErrorMsg != "" {
-				fmt.Printf("Error: %s\n", s.ErrorMsg)
+			fmt.Printf("Contract ID: %s\n", contract.ID)
+			if contract.Symbol != "" {
+				fmt.Printf("Symbol: %s\n", contract.Symbol)
 			}
-			if len(s.Events) > 0 {
-				fmt.Println("Events:")
-				for _, e := range s.Events {
-					fmt.Printf("  - %s\n", e)
-				}
+			if contract.Creator != "" {
+				fmt.Printf("Creator: %s\n", contract.Creator)
+			}
+			if contract.LastModifiedLedger > 0 {
+				fmt.Printf("Latest Activity Ledger: %d\n", contract.LastModifiedLedger)
+			}
+			if contract.LastModifiedTime != "" {
+				fmt.Printf("Latest Activity Time: %s\n", contract.LastModifiedTime)
 			}
 		}
 		fmt.Println("--------------------------------------------------")
 
+		if res.IncompleteScan {
+			printContractSearchIncompleteWarning(res)
+		}
 		return nil
 	},
 }
 
+func printContractSearchIncompleteWarning(res *rpc.SearchContractsResult) {
+	fmt.Fprintf(os.Stderr, "Warning: contract search stopped after scanning %d contract row(s) from Horizon; additional matches may exist on the network (scan budget ≤ %d rows). Increase --max-pages or set ERST_CONTRACT_SEARCH_MAX_PAGES.\n",
+		res.ScannedRecords, res.MaxScanBudget)
+}
+
 func init() {
-	searchCmd.Flags().StringVar(&searchErrorFlag, "error", "", "Regex pattern to match error messages")
-	searchCmd.Flags().StringVar(&searchEventFlag, "event", "", "Regex pattern to match events")
-	searchCmd.Flags().StringVar(&searchTxFlag, "tx", "", "Transaction hash to search for")
 	searchCmd.Flags().IntVar(&searchLimitFlag, "limit", 10, "Maximum number of results to return")
+	searchCmd.Flags().StringVarP(&searchNetworkFlag, "network", "n", string(rpc.Testnet), "Stellar network to search (testnet, mainnet, futurenet)")
+	searchCmd.Flags().IntVar(&searchMaxPagesFlag, "max-pages", 0, "Maximum Horizon pages to scan (0 = default or ERST_CONTRACT_SEARCH_MAX_PAGES)")
+	searchCmd.Flags().StringVar(&searchHorizonURLFlag, "horizon-url", "", "Override Horizon URL (advanced)")
+	_ = searchCmd.Flags().MarkHidden("horizon-url")
+	_ = searchCmd.RegisterFlagCompletionFunc("network", completeNetworkFlag)
 
 	rootCmd.AddCommand(searchCmd)
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package authtrace
@@ -89,7 +89,7 @@ type CustomContractAuth struct {
 	ErrorMsg   string   `json:"error_msg,omitempty"`
 }
 
-type AuthTraceConfig struct {
+type Config struct {
 	TraceCustomContracts bool
 	CaptureSigDetails    bool
 	MaxEventDepth        int

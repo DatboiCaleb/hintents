@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package watch
@@ -6,6 +6,7 @@ package watch
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 )
@@ -14,6 +15,7 @@ func TestNewPollerDefaults(t *testing.T) {
 	poller := NewPoller(PollerConfig{})
 	if poller == nil {
 		t.Fatal("expected non-nil poller")
+		return
 	}
 
 	if poller.config.MaxAttempts != 60 {
@@ -159,7 +161,7 @@ func TestPollWithAttemptCallback(t *testing.T) {
 		attempts = append(attempts, attempt)
 	}
 
-	poller.Poll(context.Background(), checkFunc, onAttempt)
+	_, _ = poller.Poll(context.Background(), checkFunc, onAttempt)
 
 	if len(attempts) != 5 {
 		t.Errorf("expected 5 attempts, got %d", len(attempts))
@@ -198,10 +200,11 @@ func TestPollContextCancellation(t *testing.T) {
 }
 
 func TestNewSpinner(t *testing.T) {
-	spinner := NewSpinner()
+	spinner := NewSpinnerWithWriter(io.Discard)
 
 	if spinner == nil {
 		t.Fatal("expected non-nil spinner")
+		return
 	}
 
 	if len(spinner.frames) == 0 {
@@ -210,26 +213,26 @@ func TestNewSpinner(t *testing.T) {
 }
 
 func TestSpinnerStartStop(t *testing.T) {
-	spinner := NewSpinner()
+	spinner := NewSpinnerWithWriter(io.Discard)
 	spinner.Start("Testing...")
 	time.Sleep(50 * time.Millisecond)
 	spinner.Stop()
 }
 
 func TestSpinnerMessages(t *testing.T) {
-	spinner := NewSpinner()
+	spinner := NewSpinnerWithWriter(io.Discard)
 	spinner.Start("Testing...")
 	time.Sleep(50 * time.Millisecond)
 	spinner.StopWithMessage("Test completed")
 
-	spinner2 := NewSpinner()
+	spinner2 := NewSpinnerWithWriter(io.Discard)
 	spinner2.Start("Testing error...")
 	time.Sleep(50 * time.Millisecond)
 	spinner2.StopWithError("Test failed")
 }
 
 func TestSpinnerDoubleStart(t *testing.T) {
-	spinner := NewSpinner()
+	spinner := NewSpinnerWithWriter(io.Discard)
 	spinner.Start("Testing...")
 	spinner.Start("Testing again...")
 	time.Sleep(50 * time.Millisecond)
@@ -249,6 +252,6 @@ func BenchmarkPoller(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		poller.Poll(context.Background(), checkFunc, nil)
+		_, _ = poller.Poll(context.Background(), checkFunc, nil)
 	}
 }

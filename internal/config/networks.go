@@ -1,14 +1,14 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/rpc"
 )
 
@@ -21,7 +21,7 @@ type CustomNetworkConfig struct {
 func GetConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", errors.WrapConfigError("failed to get home directory", err)
 	}
 	return filepath.Join(home, ".erst"), nil
 }
@@ -43,7 +43,8 @@ func LoadCustomNetworks() (*CustomNetworkConfig, error) {
 	}
 
 	// If file doesn't exist, return empty config
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	_, err = os.Stat(configPath)
+	if os.IsNotExist(err) {
 		return &CustomNetworkConfig{
 			Networks: make(map[string]rpc.NetworkConfig),
 		}, nil
@@ -51,12 +52,12 @@ func LoadCustomNetworks() (*CustomNetworkConfig, error) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, errors.WrapConfigError("failed to read config file", err)
 	}
 
 	var config CustomNetworkConfig
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, errors.WrapConfigError("failed to parse config file", err)
 	}
 
 	if config.Networks == nil {
@@ -75,18 +76,20 @@ func SaveCustomNetworks(config *CustomNetworkConfig) error {
 
 	// Ensure config directory exists
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	err = os.MkdirAll(configDir, 0700)
+	if err != nil {
+		return errors.WrapConfigError("failed to create config directory", err)
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
+		return errors.WrapConfigError("failed to marshal config", err)
 	}
 
 	// Write with restricted permissions (owner only)
-	if err := os.WriteFile(configPath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	err = os.WriteFile(configPath, data, 0600)
+	if err != nil {
+		return errors.WrapConfigError("failed to write config file", err)
 	}
 
 	return nil
@@ -114,7 +117,7 @@ func GetCustomNetwork(name string) (*rpc.NetworkConfig, error) {
 
 	config, exists := networks.Networks[name]
 	if !exists {
-		return nil, fmt.Errorf("custom network '%s' not found", name)
+		return nil, errors.WrapNetworkNotFound(name)
 	}
 
 	return &config, nil
@@ -143,7 +146,7 @@ func RemoveCustomNetwork(name string) error {
 	}
 
 	if _, exists := networks.Networks[name]; !exists {
-		return fmt.Errorf("custom network '%s' not found", name)
+		return errors.WrapNetworkNotFound(name)
 	}
 
 	delete(networks.Networks, name)

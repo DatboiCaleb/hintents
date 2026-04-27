@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package rpc
@@ -142,7 +142,7 @@ func TestMockServer_RequestTrackingVerification(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to make request: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	for i := 0; i < 3; i++ {
@@ -150,7 +150,7 @@ func TestMockServer_RequestTrackingVerification(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to make request: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Verify call counts

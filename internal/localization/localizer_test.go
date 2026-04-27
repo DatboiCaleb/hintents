@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package localization
@@ -74,10 +74,10 @@ func TestLocalizerFallback(t *testing.T) {
 		"key1": "English message",
 	}
 
-	loc.RegisterMessages(English, msgs)
-	loc.RegisterMessages(Spanish, map[string]string{})
+	_ = loc.RegisterMessages(English, msgs)
+	_ = loc.RegisterMessages(Spanish, map[string]string{})
 
-	loc.SetLanguage(Spanish)
+	_ = loc.SetLanguage(Spanish)
 
 	result := loc.Get("key1")
 	if result != "English message" {
@@ -92,7 +92,7 @@ func TestTranslateWithArgs(t *testing.T) {
 		"error.network": "invalid network: %s",
 	}
 
-	loc.RegisterMessages(English, msgs)
+	_ = loc.RegisterMessages(English, msgs)
 
 	result := loc.Translate("error.network", "testnet")
 	if result != "invalid network: testnet" {

@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package rpc
@@ -124,6 +124,16 @@ func TestWithHTTPClient(t *testing.T) {
 	}
 	if hc.HTTP != customClient {
 		t.Errorf("expected custom HTTP client to be used")
+	}
+}
+
+func TestMethodTelemetry_DefaultsToNoop(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if client.methodTelemetry == nil {
+		t.Fatal("expected default no-op method telemetry")
 	}
 }
 
@@ -268,6 +278,7 @@ func TestDeprecatedNewClient(t *testing.T) {
 	client := NewClientDefault(Testnet, "token")
 	if client == nil {
 		t.Fatal("expected client, got nil")
+		return
 	}
 	if client.Network != Testnet {
 		t.Errorf("expected Testnet network")
@@ -278,6 +289,7 @@ func TestDeprecatedNewClientWithURL(t *testing.T) {
 	client := NewClientWithURLOption(TestnetHorizonURL, Testnet, "token")
 	if client == nil {
 		t.Fatal("expected client, got nil")
+		return
 	}
 	if client.HorizonURL != TestnetHorizonURL {
 		t.Errorf("expected HorizonURL to match")
@@ -289,6 +301,7 @@ func TestDeprecatedNewClientWithURLs(t *testing.T) {
 	client := NewClientWithURLsOption(urls, Testnet, "token")
 	if client == nil {
 		t.Fatal("expected client, got nil")
+		return
 	}
 	if len(client.AltURLs) != len(urls) {
 		t.Errorf("expected %d URLs", len(urls))
@@ -297,13 +310,13 @@ func TestDeprecatedNewClientWithURLs(t *testing.T) {
 
 func BenchmarkNewClient(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		NewClient(WithNetwork(Testnet), WithToken("token"))
+		_, _ = NewClient(WithNetwork(Testnet), WithToken("token"))
 	}
 }
 
 func BenchmarkNewClientWithMultipleOptions(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		NewClient(
+		_, _ = NewClient(
 			WithNetwork(Testnet),
 			WithToken("token"),
 			WithHorizonURL(TestnetHorizonURL),
@@ -315,6 +328,6 @@ func BenchmarkNewClientWithMultipleOptions(b *testing.B) {
 
 func BenchmarkNewCustomClient(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		NewCustomClient(TestnetConfig)
+		_, _ = NewCustomClient(TestnetConfig)
 	}
 }

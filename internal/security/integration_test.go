@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package security
@@ -108,9 +108,10 @@ func TestDetector_FlawedContract(t *testing.T) {
 	heuristicCount := 0
 
 	for _, finding := range findings {
-		if finding.Type == FindingVerifiedRisk {
+		switch finding.Type {
+		case FindingVerifiedRisk:
 			verifiedCount++
-		} else if finding.Type == FindingHeuristicWarn {
+		case FindingHeuristicWarn:
 			heuristicCount++
 		}
 	}

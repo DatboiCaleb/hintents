@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package session
@@ -28,8 +28,8 @@ const (
 	DefaultMaxSessions = 1000
 )
 
-// SessionData represents the complete state of a debug session
-type SessionData struct {
+// Data represents the complete state of a debug session
+type Data struct {
 	ID            string    `json:"id"`
 	CreatedAt     time.Time `json:"created_at"`
 	LastAccessAt  time.Time `json:"last_access_at"`
@@ -63,7 +63,7 @@ func NewStore() (*Store, error) {
 	}
 
 	erstDir := filepath.Join(homeDir, ".erst")
-	if err := os.MkdirAll(erstDir, 0755); err != nil {
+	if err = os.MkdirAll(erstDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create .erst directory: %w", err)
 	}
 
@@ -78,14 +78,14 @@ func NewStore() (*Store, error) {
 	store := &Store{db: db}
 
 	// Initialize schema
-	if err := store.initSchema(); err != nil {
-		db.Close()
+	if err = store.initSchema(); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
 	// Set file permissions to 600 (read/write for owner only)
-	if err := os.Chmod(dbPath, 0600); err != nil {
-		logger.Logger.Warn("Failed to set database permissions", "error", err)
+	if chmodErr := os.Chmod(dbPath, 0600); chmodErr != nil {
+		logger.Logger.Warn("Failed to set database permissions", "error", chmodErr)
 	}
 
 	return store, nil
@@ -123,7 +123,7 @@ func (s *Store) initSchema() error {
 }
 
 // Save persists a session to the database
-func (s *Store) Save(ctx context.Context, data *SessionData) error {
+func (s *Store) Save(ctx context.Context, data *Data) error {
 	if data.ID == "" {
 		return fmt.Errorf("session ID is required")
 	}
@@ -173,7 +173,7 @@ func (s *Store) Save(ctx context.Context, data *SessionData) error {
 }
 
 // Load retrieves a session by ID
-func (s *Store) Load(ctx context.Context, sessionID string) (*SessionData, error) {
+func (s *Store) Load(ctx context.Context, sessionID string) (*Data, error) {
 	query := `
 	SELECT id, created_at, last_access_at, status, network, horizon_url, tx_hash,
 	       envelope_xdr, result_xdr, result_meta_xdr,
@@ -182,7 +182,7 @@ func (s *Store) Load(ctx context.Context, sessionID string) (*SessionData, error
 	WHERE id = ?
 	`
 
-	var data SessionData
+	var data Data
 	var createdAt, lastAccessAt string
 
 	err := s.db.QueryRowContext(ctx, query, sessionID).Scan(
@@ -211,15 +211,15 @@ func (s *Store) Load(ctx context.Context, sessionID string) (*SessionData, error
 	// Update last_access_at on load
 	data.LastAccessAt = time.Now()
 	updateQuery := `UPDATE sessions SET last_access_at = ? WHERE id = ?`
-	if _, err := s.db.ExecContext(ctx, updateQuery, data.LastAccessAt, sessionID); err != nil {
-		logger.Logger.Warn("Failed to update last_access_at", "error", err)
+	if _, updateErr := s.db.ExecContext(ctx, updateQuery, data.LastAccessAt, sessionID); updateErr != nil {
+		logger.Logger.Warn("Failed to update last_access_at", "error", updateErr)
 	}
 
 	return &data, nil
 }
 
 // List returns recent sessions, ordered by last_access_at descending
-func (s *Store) List(ctx context.Context, limit int) ([]*SessionData, error) {
+func (s *Store) List(ctx context.Context, limit int) ([]*Data, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -237,37 +237,37 @@ func (s *Store) List(ctx context.Context, limit int) ([]*SessionData, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list sessions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
-	var sessions []*SessionData
+	var sessions []*Data
 	for rows.Next() {
-		var data SessionData
+		var data Data
 		var createdAt, lastAccessAt string
 
-		err := rows.Scan(
+		scanErr := rows.Scan(
 			&data.ID, &createdAt, &lastAccessAt, &data.Status,
 			&data.Network, &data.HorizonURL, &data.TxHash,
 			&data.EnvelopeXdr, &data.ResultXdr, &data.ResultMetaXdr,
 			&data.SimRequestJSON, &data.SimResponseJSON,
 			&data.ErstVersion, &data.SchemaVersion,
 		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan session: %w", err)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan session: %w", scanErr)
 		}
 
 		// Parse timestamps
-		if data.CreatedAt, err = time.Parse(time.RFC3339, createdAt); err != nil {
-			return nil, fmt.Errorf("failed to parse created_at: %w", err)
+		if data.CreatedAt, scanErr = time.Parse(time.RFC3339, createdAt); scanErr != nil {
+			return nil, fmt.Errorf("failed to parse created_at: %w", scanErr)
 		}
-		if data.LastAccessAt, err = time.Parse(time.RFC3339, lastAccessAt); err != nil {
-			return nil, fmt.Errorf("failed to parse last_access_at: %w", err)
+		if data.LastAccessAt, scanErr = time.Parse(time.RFC3339, lastAccessAt); scanErr != nil {
+			return nil, fmt.Errorf("failed to parse last_access_at: %w", scanErr)
 		}
 
 		sessions = append(sessions, &data)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating sessions: %w", err)
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, fmt.Errorf("error iterating sessions: %w", rowsErr)
 	}
 
 	return sessions, nil
@@ -315,8 +315,8 @@ func (s *Store) Cleanup(ctx context.Context, ttl time.Duration, maxSessions int)
 	if maxSessions > 0 {
 		countQuery := `SELECT COUNT(*) FROM sessions`
 		var count int
-		if err := s.db.QueryRowContext(ctx, countQuery).Scan(&count); err != nil {
-			return fmt.Errorf("failed to count sessions: %w", err)
+		if countErr := s.db.QueryRowContext(ctx, countQuery).Scan(&count); countErr != nil {
+			return fmt.Errorf("failed to count sessions: %w", countErr)
 		}
 
 		if count > maxSessions {
@@ -329,12 +329,12 @@ func (s *Store) Cleanup(ctx context.Context, ttl time.Duration, maxSessions int)
 					LIMIT ?
 				)
 			`
-			result, err := s.db.ExecContext(ctx, deleteOldest, excess)
-			if err != nil {
-				return fmt.Errorf("failed to delete oldest sessions: %w", err)
+			delResult, delErr := s.db.ExecContext(ctx, deleteOldest, excess)
+			if delErr != nil {
+				return fmt.Errorf("failed to delete oldest sessions: %w", delErr)
 			}
 
-			deletedCount, _ := result.RowsAffected()
+			deletedCount, _ := delResult.RowsAffected()
 			if deletedCount > 0 {
 				logger.Logger.Debug("Cleaned up excess sessions", "count", deletedCount)
 			}
@@ -364,7 +364,7 @@ func GenerateID(txHash string) string {
 }
 
 // ToSimulationRequest converts stored JSON back to SimulationRequest
-func (s *SessionData) ToSimulationRequest() (*simulator.SimulationRequest, error) {
+func (s *Data) ToSimulationRequest() (*simulator.SimulationRequest, error) {
 	if s.SimRequestJSON == "" {
 		return nil, fmt.Errorf("no simulation request data stored")
 	}
@@ -378,7 +378,7 @@ func (s *SessionData) ToSimulationRequest() (*simulator.SimulationRequest, error
 }
 
 // ToSimulationResponse converts stored JSON back to SimulationResponse
-func (s *SessionData) ToSimulationResponse() (*simulator.SimulationResponse, error) {
+func (s *Data) ToSimulationResponse() (*simulator.SimulationResponse, error) {
 	if s.SimResponseJSON == "" {
 		return nil, fmt.Errorf("no simulation response data stored")
 	}

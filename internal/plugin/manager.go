@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package plugin
@@ -55,7 +55,7 @@ func (m *Manager) DecodeEventWithPlugin(pluginName string, eventType string, dat
 }
 
 // GetPlugins returns available plugins
-func (m *Manager) GetPlugins() []PluginMetadata {
+func (m *Manager) GetPlugins() []Metadata {
 	return m.registry.ListPlugins()
 }
 

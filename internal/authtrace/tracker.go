@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package authtrace
@@ -13,7 +13,7 @@ type Tracker struct {
 	mu              sync.RWMutex
 	events          []AuthEvent
 	failures        []AuthFailure
-	config          AuthTraceConfig
+	config          Config
 	accountContexts map[string]*AccountAuthContext
 }
 
@@ -25,7 +25,7 @@ type AccountAuthContext struct {
 	WeightByType    map[SignatureType]uint32
 }
 
-func NewTracker(config AuthTraceConfig) *Tracker {
+func NewTracker(config Config) *Tracker {
 	return &Tracker{
 		events:          make([]AuthEvent, 0),
 		failures:        make([]AuthFailure, 0),

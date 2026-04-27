@@ -1,12 +1,17 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/dotandev/hintents/internal/authtrace"
+	"github.com/dotandev/hintents/internal/config"
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/logger"
 	"github.com/dotandev/hintents/internal/rpc"
 	"github.com/spf13/cobra"
@@ -20,8 +25,9 @@ var (
 )
 
 var authDebugCmd = &cobra.Command{
-	Use:   "auth-debug <transaction-hash>",
-	Short: "Debug multi-signature and threshold-based authorization failures",
+	Use:     "auth-debug <transaction-hash>",
+	GroupID: "core",
+	Short:   "Debug multi-signature and threshold-based authorization failures",
 	Long: `Analyze multi-signature authorization flows and identify which signatures or thresholds failed.
 
 Examples:
@@ -30,10 +36,25 @@ Examples:
   erst auth-debug --json <tx-hash>`,
 	Args: cobra.ExactArgs(1),
 	PreRunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flags().Changed("network") {
+			token := "" // auth_debug doesn't have a token flag, check env/config
+			token = os.Getenv("ERST_RPC_TOKEN")
+			if token == "" {
+				if cfg, err := config.LoadConfig(); err == nil && cfg.RPCToken != "" {
+					token = cfg.RPCToken
+				}
+			}
+			probeCtx, probeCancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+			defer probeCancel()
+			if resolved, err := rpc.ResolveNetwork(probeCtx, args[0], token); err == nil {
+				authNetworkFlag = string(resolved)
+				fmt.Printf("Resolved network: %s\n", authNetworkFlag)
+			}
+		}
 		switch rpc.Network(authNetworkFlag) {
 		case rpc.Testnet, rpc.Mainnet, rpc.Futurenet:
 		default:
-			return fmt.Errorf("invalid network: %s", authNetworkFlag)
+			return errors.WrapInvalidNetwork(authNetworkFlag)
 		}
 		return nil
 	},
@@ -49,19 +70,19 @@ Examples:
 
 		client, err := rpc.NewClient(opts...)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %w", err)
+			return errors.WrapValidationError(fmt.Sprintf("failed to create client: %v", err))
 		}
 
 		logger.Logger.Info("Fetching transaction for auth analysis", "tx_hash", txHash)
 
 		resp, err := client.GetTransaction(cmd.Context(), txHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch transaction: %w", err)
+			return errors.WrapRPCConnectionFailed(err)
 		}
 
 		fmt.Printf("Transaction Envelope: %d bytes\n", len(resp.EnvelopeXdr))
 
-		config := authtrace.AuthTraceConfig{
+		config := authtrace.Config{
 			TraceCustomContracts: true,
 			CaptureSigDetails:    true,
 			MaxEventDepth:        1000,
@@ -109,5 +130,8 @@ func init() {
 	authDebugCmd.Flags().StringVar(&authRPCURLFlag, "rpc-url", "", "Custom Horizon RPC URL")
 	authDebugCmd.Flags().BoolVar(&authDetailedFlag, "detailed", false, "Show detailed analysis and missing signatures")
 	authDebugCmd.Flags().BoolVar(&authJSONOutputFlag, "json", false, "Output as JSON")
+
+	_ = authDebugCmd.RegisterFlagCompletionFunc("network", completeNetworkFlag)
+
 	rootCmd.AddCommand(authDebugCmd)
 }

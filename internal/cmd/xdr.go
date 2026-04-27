@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/dotandev/hintents/internal/decoder"
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -18,47 +19,48 @@ var (
 )
 
 var xdrCmd = &cobra.Command{
-	Use:   "xdr",
-	Short: "Format and decode XDR data",
-	Long:  `Decode and format XDR structures to JSON or table format for easy inspection.`,
-	RunE:  xdrExec,
+	Use:     "xdr",
+	GroupID: "utility",
+	Short:   "Format and decode XDR data",
+	Long:    `Decode and format XDR structures to JSON or table format for easy inspection.`,
+	RunE:    xdrExec,
 }
 
 func xdrExec(cmd *cobra.Command, args []string) error {
 	if xdrData == "" {
-		return fmt.Errorf("XDR data required (use --data or pipe via stdin)")
+		return errors.WrapCliArgumentRequired("data")
 	}
 
 	data, err := base64.StdEncoding.DecodeString(xdrData)
 	if err != nil {
-		return fmt.Errorf("invalid base64 input: %w", err)
+		return errors.WrapValidationError(fmt.Sprintf("invalid base64 input: %v", err))
 	}
 
 	var output interface{}
 
 	switch xdrType {
 	case "ledger-entry":
-		le, err := decoder.DecodeXDRBase64AsLedgerEntry(string(data))
-		if err != nil {
-			return fmt.Errorf("failed to decode ledger entry: %w", err)
+		le, decodeErr := decoder.DecodeXDRBase64AsLedgerEntry(string(data))
+		if decodeErr != nil {
+			return errors.WrapUnmarshalFailed(decodeErr, "ledger entry")
 		}
 		output = le
 
 	case "diagnostic-event":
-		event, err := decoder.DecodeXDRBase64AsDiagnosticEvent(string(data))
-		if err != nil {
-			return fmt.Errorf("failed to decode diagnostic event: %w", err)
+		event, decodeErr := decoder.DecodeXDRBase64AsDiagnosticEvent(string(data))
+		if decodeErr != nil {
+			return errors.WrapUnmarshalFailed(decodeErr, "diagnostic event")
 		}
 		output = event
 
 	default:
-		return fmt.Errorf("unsupported XDR type: %s (use: ledger-entry, diagnostic-event)", xdrType)
+		return errors.WrapValidationError(fmt.Sprintf("unsupported XDR type: %s (use: ledger-entry, diagnostic-event)", xdrType))
 	}
 
 	formatter := decoder.NewXDRFormatter(decoder.FormatType(xdrFormat))
 	result, err := formatter.Format(output)
 	if err != nil {
-		return fmt.Errorf("formatting failed: %w", err)
+		return errors.WrapValidationError(fmt.Sprintf("formatting failed: %v", err))
 	}
 
 	fmt.Println(result)
@@ -73,4 +75,7 @@ func init() {
 	xdrCmd.Flags().StringVar(&xdrType, "type", "ledger-entry", "XDR type: ledger-entry, diagnostic-event")
 
 	_ = xdrCmd.MarkFlagRequired("data")
+
+	_ = xdrCmd.RegisterFlagCompletionFunc("format", completeXDRFormatFlag)
+	_ = xdrCmd.RegisterFlagCompletionFunc("type", completeXDRTypeFlag)
 }

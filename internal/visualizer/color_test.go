@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package visualizer
@@ -10,8 +10,8 @@ import (
 )
 
 func TestNoColorDisablesColors(t *testing.T) {
-	os.Setenv("NO_COLOR", "1")
-	defer os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("NO_COLOR", "1")
+	defer func() { _ = os.Unsetenv("NO_COLOR") }()
 
 	if ColorEnabled() {
 		t.Error("ColorEnabled() should be false when NO_COLOR is set")
@@ -28,9 +28,9 @@ func TestNoColorDisablesColors(t *testing.T) {
 
 func TestTermDumbDisablesColors(t *testing.T) {
 	oldTerm := os.Getenv("TERM")
-	defer func() { os.Setenv("TERM", oldTerm) }()
-	os.Unsetenv("NO_COLOR")
-	os.Setenv("TERM", "dumb")
+	defer func() { _ = os.Setenv("TERM", oldTerm) }()
+	_ = os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("TERM", "dumb")
 
 	if ColorEnabled() {
 		t.Error("ColorEnabled() should be false when TERM=dumb")
@@ -38,8 +38,8 @@ func TestTermDumbDisablesColors(t *testing.T) {
 }
 
 func TestSymbolReturnsPlainASCIIWhenDisabled(t *testing.T) {
-	os.Setenv("NO_COLOR", "1")
-	defer os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("NO_COLOR", "1")
+	defer func() { _ = os.Unsetenv("NO_COLOR") }()
 
 	for name, wantPlain := range map[string]string{
 		"check":   "[OK]",
@@ -55,8 +55,8 @@ func TestSymbolReturnsPlainASCIIWhenDisabled(t *testing.T) {
 }
 
 func TestSuccessWarningErrorNoEscapeWhenDisabled(t *testing.T) {
-	os.Setenv("NO_COLOR", "1")
-	defer os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("NO_COLOR", "1")
+	defer func() { _ = os.Unsetenv("NO_COLOR") }()
 
 	for _, s := range []string{Success(), Warning(), Error()} {
 		if strings.Contains(s, "\033") {
@@ -66,11 +66,11 @@ func TestSuccessWarningErrorNoEscapeWhenDisabled(t *testing.T) {
 }
 
 func TestNoColorOverridesForceColor(t *testing.T) {
-	os.Setenv("NO_COLOR", "1")
-	os.Setenv("FORCE_COLOR", "1")
+	_ = os.Setenv("NO_COLOR", "1")
+	_ = os.Setenv("FORCE_COLOR", "1")
 	defer func() {
-		os.Unsetenv("NO_COLOR")
-		os.Unsetenv("FORCE_COLOR")
+		_ = os.Unsetenv("NO_COLOR")
+		_ = os.Unsetenv("FORCE_COLOR")
 	}()
 
 	if ColorEnabled() {
@@ -83,9 +83,9 @@ func TestNoColorOverridesForceColor(t *testing.T) {
 }
 
 func TestForceColorEnablesColorsWhenSet(t *testing.T) {
-	os.Unsetenv("NO_COLOR")
-	os.Setenv("FORCE_COLOR", "1")
-	defer os.Unsetenv("FORCE_COLOR")
+	_ = os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("FORCE_COLOR", "1")
+	defer func() { _ = os.Unsetenv("FORCE_COLOR") }()
 
 	// FORCE_COLOR=1 should enable colors (even when piped / not TTY)
 	if !ColorEnabled() {
@@ -94,5 +94,33 @@ func TestForceColorEnablesColorsWhenSet(t *testing.T) {
 	out := Colorize("hello", "red")
 	if !strings.Contains(out, "\033") {
 		t.Errorf("FORCE_COLOR=1: Colorize should emit ANSI, got plain: %q", out)
+	}
+}
+
+func TestContractBoundaryPlainText(t *testing.T) {
+	_ = os.Setenv("NO_COLOR", "1")
+	defer func() { _ = os.Unsetenv("NO_COLOR") }()
+
+	out := ContractBoundary("CABC", "CXYZ")
+	expected := "--- contract boundary: CABC -> CXYZ ---"
+	if out != expected {
+		t.Errorf("ContractBoundary() = %q, want %q", out, expected)
+	}
+	if strings.Contains(out, "\033") {
+		t.Errorf("ContractBoundary should not contain ANSI when NO_COLOR set, got: %q", out)
+	}
+}
+
+func TestContractBoundaryWithColor(t *testing.T) {
+	_ = os.Unsetenv("NO_COLOR")
+	_ = os.Setenv("FORCE_COLOR", "1")
+	defer func() { _ = os.Unsetenv("FORCE_COLOR") }()
+
+	out := ContractBoundary("CABC", "CXYZ")
+	if !strings.Contains(out, "CABC") || !strings.Contains(out, "CXYZ") {
+		t.Errorf("ContractBoundary should contain both contract IDs, got: %q", out)
+	}
+	if !strings.Contains(out, "\033") {
+		t.Errorf("ContractBoundary should contain ANSI codes when colors enabled, got: %q", out)
 	}
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package webhook
@@ -15,17 +15,17 @@ import (
 	"github.com/dotandev/hintents/internal/logger"
 )
 
-// WebhookType defines the supported webhook platforms
-type WebhookType string
+// Type defines the supported webhook platforms
+type Type string
 
 const (
-	SlackWebhook   WebhookType = "slack"
-	DiscordWebhook WebhookType = "discord"
+	SlackWebhook   Type = "slack"
+	DiscordWebhook Type = "discord"
 )
 
 // Config represents webhook configuration
 type Config struct {
-	Type    WebhookType
+	Type    Type
 	URL     string
 	Timeout time.Duration
 	Retries int

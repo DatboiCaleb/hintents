@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
@@ -44,12 +44,12 @@ For detailed instructions on setting up completions for your shell, consult your
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		shell := args[0]
 
 		switch shell {
 		case "bash":
-			return rootCmd.GenBashCompletion(os.Stdout)
+			return rootCmd.GenBashCompletionV2(os.Stdout, true)
 		case "zsh":
 			return rootCmd.GenZshCompletion(os.Stdout)
 		case "fish":

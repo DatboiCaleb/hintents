@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package updater
@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ type Checker struct {
 // GitHubRelease represents the GitHub API response for a release
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
+	Body    string `json:"body"`
 }
 
 // CacheData stores the last check timestamp and latest version
@@ -76,20 +78,13 @@ func (c *Checker) CheckForUpdates() {
 		return
 	}
 
-	// Update cache with the latest version
+	// Update cache with the latest version (banner is shown from cache at next run start)
 	if err := c.updateCache(latestVersion); err != nil {
 		// Silent failure
 		return
 	}
-
-	// Compare versions
-	needsUpdate, err := c.compareVersions(c.currentVersion, latestVersion)
-	if err != nil || !needsUpdate {
-		return
-	}
-
-	// Display notification
-	c.displayNotification(latestVersion)
+	// Do not display here; banner is shown once per run from ShowBannerFromCache to avoid
+	// mid-output or duplicate messages.
 }
 
 // shouldCheck determines if we should check based on cache
@@ -131,7 +126,7 @@ func (c *Checker) fetchLatestVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle rate limiting or other errors silently
 	if resp.StatusCode != http.StatusOK {
@@ -149,6 +144,50 @@ func (c *Checker) fetchLatestVersion(ctx context.Context) (string, error) {
 	}
 
 	return release.TagName, nil
+}
+
+// FetchReleaseInfo gets full information for a specific version or latest
+func (c *Checker) FetchReleaseInfo(ctx context.Context, version string) (*GitHubRelease, error) {
+	url := GitHubAPIURL
+	if version != "" && version != "latest" {
+		if !strings.HasPrefix(version, "v") {
+			version = "v" + version
+		}
+		url = fmt.Sprintf("https://api.github.com/repos/dotandev/hintents/releases/tags/%s", version)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "erst-cli")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	client := &http.Client{
+		Timeout: RequestTimeout,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("release %s not found", version)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code from GitHub: %d", resp.StatusCode)
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return nil, err
+	}
+
+	return &release, nil
 }
 
 // compareVersions compares current vs latest version
@@ -176,13 +215,83 @@ func (c *Checker) compareVersions(current, latest string) (bool, error) {
 	return latestVer.GreaterThan(currentVer), nil
 }
 
-// displayNotification prints the update message to stderr
+// displayNotification prints the update message to stderr (small one-line banner)
 func (c *Checker) displayNotification(latestVersion string) {
 	message := fmt.Sprintf(
-		"\n💡 A new version (%s) is available! Run 'go install github.com/dotandev/hintents/cmd/erst@latest' to update.\n\n",
+		"Upgrade available: %s — run 'go install github.com/dotandev/hintents/cmd/erst@latest' to update\n",
 		latestVersion,
 	)
 	fmt.Fprint(os.Stderr, message)
+}
+
+func (c *Checker) PerformUpdate(ctx context.Context, version string) error {
+	// For idempotency, if the version requested is already what we have, skip
+	if version != "" && version != "latest" {
+		v := strings.TrimPrefix(version, "v")
+		cur := strings.TrimPrefix(c.currentVersion, "v")
+		if v == cur {
+			return nil // Already at version
+		}
+	}
+
+	target := "github.com/dotandev/hintents/cmd/erst@latest"
+	if version != "" && version != "latest" {
+		if !strings.HasPrefix(version, "v") {
+			version = "v" + version
+		}
+		target = fmt.Sprintf("github.com/dotandev/hintents/cmd/erst@%s", version)
+	}
+
+	fmt.Printf("Updating to %s via 'go install'...\n", target)
+
+	// Prepare go install command
+	cmd := exec.CommandContext(ctx, "go", "install", target)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+
+	fmt.Println("Update successful. Please restart erst.")
+	return nil
+}
+
+// ShowBannerFromCache reads the last update check cache and, if a newer version
+// was found, prints a small "Upgrade available" banner to stderr. Called at CLI
+// start so the banner appears once per run without blocking. Skips if update
+// checking is disabled or cache is missing/invalid.
+func ShowBannerFromCache(currentVersion string) {
+	c := NewChecker(currentVersion)
+	c.showBannerFromCache()
+}
+
+// ShowBannerFromCacheWithCacheDir is for testing: same as ShowBannerFromCache
+// but uses the given cache directory (full path to the erst cache dir, e.g. …/erst).
+func ShowBannerFromCacheWithCacheDir(currentVersion, cacheDir string) {
+	c := &Checker{currentVersion: currentVersion, cacheDir: cacheDir}
+	c.showBannerFromCache()
+}
+
+// showBannerFromCache reads cache and displays the banner if cached latest > current.
+func (c *Checker) showBannerFromCache() {
+	if c.isUpdateCheckDisabled() {
+		return
+	}
+	cacheFile := filepath.Join(c.cacheDir, "last_update_check")
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return
+	}
+	var cache CacheData
+	if err := json.Unmarshal(data, &cache); err != nil || cache.LatestVersion == "" {
+		return
+	}
+	needsUpdate, err := c.compareVersions(c.currentVersion, cache.LatestVersion)
+	if err != nil || !needsUpdate {
+		return
+	}
+	c.displayNotification(cache.LatestVersion)
 }
 
 // updateCache updates the cache file with the latest check time and version

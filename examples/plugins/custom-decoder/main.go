@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package main
@@ -50,8 +50,8 @@ func (d *CustomDecoder) Decode(data []byte) (json.RawMessage, error) {
 	return json.Marshal(decoded)
 }
 
-func (d *CustomDecoder) Metadata() plugin.PluginMetadata {
-	return plugin.PluginMetadata{
+func (d *CustomDecoder) Metadata() plugin.Metadata {
+	return plugin.Metadata{
 		Name:        d.Name(),
 		Version:     d.Version(),
 		APIVersion:  plugin.Version,

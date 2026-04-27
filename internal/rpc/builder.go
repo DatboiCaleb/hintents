@@ -1,33 +1,42 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package rpc
 
 import (
 	"fmt"
-	"net/http"
 	"os"
+	"time"
 
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/stellar/go-stellar-sdk/clients/horizonclient"
 )
 
 type ClientOption func(*clientBuilder) error
 
 type clientBuilder struct {
-	network      Network
-	token        string
-	horizonURL   string
-	sorobanURL   string
-	altURLs      []string
-	cacheEnabled bool
-	config       *NetworkConfig
-	httpClient   *http.Client
+	network         Network
+	token           string
+	horizonURL      string
+	sorobanURL      string
+	altURLs         []string
+	cacheEnabled    bool
+	methodTelemetry MethodTelemetry
+	config          *NetworkConfig
+	httpClient      HTTPClient
+	requestTimeout  time.Duration
+	middlewares     []Middleware
+	loggingEnabled  bool
 }
+
+const defaultHTTPTimeout = 15 * time.Second
 
 func newBuilder() *clientBuilder {
 	return &clientBuilder{
-		network:      Mainnet,
-		cacheEnabled: true,
+		network:         Mainnet,
+		cacheEnabled:    true,
+		methodTelemetry: defaultMethodTelemetry(),
+		requestTimeout:  defaultHTTPTimeout,
 	}
 }
 
@@ -52,7 +61,7 @@ func WithHorizonURL(url string) ClientOption {
 	return func(b *clientBuilder) error {
 		if url != "" {
 			if err := isValidURL(url); err != nil {
-				return fmt.Errorf("invalid HorizonURL: %w", err)
+				return errors.WrapValidationError(fmt.Sprintf("invalid HorizonURL: %v", err))
 			}
 		}
 		b.horizonURL = url
@@ -65,7 +74,7 @@ func WithAltURLs(urls []string) ClientOption {
 	return func(b *clientBuilder) error {
 		for _, url := range urls {
 			if err := isValidURL(url); err != nil {
-				return fmt.Errorf("invalid URL in altURLs: %w", err)
+				return errors.WrapValidationError(fmt.Sprintf("invalid URL in altURLs: %v", err))
 			}
 		}
 		if len(urls) > 0 {
@@ -80,7 +89,7 @@ func WithSorobanURL(url string) ClientOption {
 	return func(b *clientBuilder) error {
 		if url != "" {
 			if err := isValidURL(url); err != nil {
-				return fmt.Errorf("invalid SorobanURL: %w", err)
+				return errors.WrapValidationError(fmt.Sprintf("invalid SorobanURL: %v", err))
 			}
 		}
 		b.sorobanURL = url
@@ -91,7 +100,7 @@ func WithSorobanURL(url string) ClientOption {
 func WithNetworkConfig(cfg NetworkConfig) ClientOption {
 	return func(b *clientBuilder) error {
 		if err := ValidateNetworkConfig(cfg); err != nil {
-			return fmt.Errorf("invalid network config: %w", err)
+			return errors.WrapValidationError(fmt.Sprintf("invalid network config: %v", err))
 		}
 		b.config = &cfg
 		b.network = Network(cfg.Name)
@@ -108,9 +117,49 @@ func WithCacheEnabled(enabled bool) ClientOption {
 	}
 }
 
-func WithHTTPClient(client *http.Client) ClientOption {
+// WithRequestTimeout sets a custom HTTP request timeout for all RPC calls.
+// Use this to override the default 15-second timeout, for example on slow connections.
+// A value of 0 disables the timeout (not recommended for production use).
+func WithRequestTimeout(d time.Duration) ClientOption {
+	return func(b *clientBuilder) error {
+		b.requestTimeout = d
+		return nil
+	}
+}
+
+func WithHTTPClient(client HTTPClient) ClientOption {
 	return func(b *clientBuilder) error {
 		b.httpClient = client
+		return nil
+	}
+}
+
+// WithMethodTelemetry injects an optional telemetry hook for SDK method timings.
+// If nil is provided, a no-op implementation is used.
+func WithMethodTelemetry(telemetry MethodTelemetry) ClientOption {
+	return func(b *clientBuilder) error {
+		if telemetry == nil {
+			telemetry = defaultMethodTelemetry()
+		}
+		b.methodTelemetry = telemetry
+		return nil
+	}
+}
+
+func WithMiddleware(middlewares ...Middleware) ClientOption {
+	return func(b *clientBuilder) error {
+		b.middlewares = append(b.middlewares, middlewares...)
+		return nil
+	}
+}
+
+// WithLoggingEnabled enables or disables the built-in LoggingMiddleware.
+// When enabled, every outbound HTTP request is logged at INFO level with its
+// method, URL, response status, and round-trip latency. The logging middleware
+// is always placed outermost so it observes the full logical request duration.
+func WithLoggingEnabled(enabled bool) ClientOption {
+	return func(b *clientBuilder) error {
+		b.loggingEnabled = enabled
 		return nil
 	}
 }
@@ -190,14 +239,6 @@ func (b *clientBuilder) build() (*Client, error) {
 		b.config = &cfg
 	}
 
-	if b.httpClient == nil {
-		b.httpClient = createHTTPClient(b.token)
-	}
-
-	if len(b.altURLs) == 0 && b.horizonURL != "" {
-		b.altURLs = []string{b.horizonURL}
-	}
-
 	if b.horizonURL == "" {
 		b.horizonURL = b.config.HorizonURL
 	}
@@ -206,17 +247,33 @@ func (b *clientBuilder) build() (*Client, error) {
 		b.altURLs = []string{b.horizonURL}
 	}
 
+	if b.httpClient == nil {
+		mws := b.middlewares
+		if b.loggingEnabled {
+			// Prepend so the logging middleware is outermost in the chain,
+			// ensuring it captures the full round-trip including all user middlewares.
+			mws = append([]Middleware{NewLoggingMiddleware()}, mws...)
+		}
+		b.httpClient = createHTTPClient(b.token, b.requestTimeout, mws...)
+	}
+
 	return &Client{
 		HorizonURL: b.horizonURL,
 		Horizon: &horizonclient.Client{
 			HorizonURL: b.horizonURL,
 			HTTP:       b.httpClient,
 		},
-		Network:      b.network,
-		SorobanURL:   b.sorobanURL,
-		AltURLs:      b.altURLs,
-		token:        b.token,
-		Config:       *b.config,
-		CacheEnabled: b.cacheEnabled,
+		Network:         b.network,
+		SorobanURL:      b.sorobanURL,
+		AltURLs:         b.altURLs,
+		httpClient:      b.httpClient,
+		token:           b.token,
+		Config:          *b.config,
+		CacheEnabled:    b.cacheEnabled,
+		methodTelemetry: b.methodTelemetry,
+		failures:        make(map[string]int),
+		lastFailure:     make(map[string]time.Time),
+		middlewares:     b.middlewares,
+		healthCollector: NewHealthCollector(),
 	}, nil
 }

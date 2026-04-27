@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package rpc
@@ -78,12 +78,7 @@ func BenchmarkJSONRPCUnmarshal(b *testing.B) {
 				ID:      1,
 			}
 			resp.Result.LatestLedger = 12345
-			resp.Result.Entries = make([]struct {
-				Key                string `json:"key"`
-				Xdr                string `json:"xdr"`
-				LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-				LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
-			}, tt.numEntries)
+			resp.Result.Entries = make([]LedgerEntryResult, tt.numEntries)
 
 			for i := 0; i < tt.numEntries; i++ {
 				resp.Result.Entries[i].Key = strings.Repeat("k", 64)
@@ -160,12 +155,7 @@ func BenchmarkLargeJSONParsing(b *testing.B) {
 		ID:      1,
 	}
 	resp.Result.LatestLedger = 99999
-	resp.Result.Entries = make([]struct {
-		Key                string `json:"key"`
-		Xdr                string `json:"xdr"`
-		LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-		LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
-	}, 500)
+	resp.Result.Entries = make([]LedgerEntryResult, 500)
 
 	for i := 0; i < 500; i++ {
 		resp.Result.Entries[i].Key = strings.Repeat("k", 100)
@@ -247,7 +237,7 @@ func BenchmarkGetLedgerEntries(b *testing.B) {
 				// Read and validate request
 				body, _ := io.ReadAll(r.Body)
 				var req GetLedgerEntriesRequest
-				json.Unmarshal(body, &req)
+				_ = json.Unmarshal(body, &req)
 
 				// Create response with matching number of entries
 				resp := GetLedgerEntriesResponse{
@@ -255,12 +245,7 @@ func BenchmarkGetLedgerEntries(b *testing.B) {
 					ID:      1,
 				}
 				resp.Result.LatestLedger = 12345
-				resp.Result.Entries = make([]struct {
-					Key                string `json:"key"`
-					Xdr                string `json:"xdr"`
-					LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-					LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
-				}, len(req.Params[0].([]interface{})))
+				resp.Result.Entries = make([]LedgerEntryResult, len(req.Params[0].([]interface{})))
 
 				for i := range resp.Result.Entries {
 					resp.Result.Entries[i].Key = strings.Repeat("k", 64)
@@ -269,7 +254,7 @@ func BenchmarkGetLedgerEntries(b *testing.B) {
 					resp.Result.Entries[i].LiveUntilLedger = 2000 + i
 				}
 
-				json.NewEncoder(w).Encode(resp)
+				_ = json.NewEncoder(w).Encode(resp)
 			}))
 			defer server.Close()
 
@@ -377,7 +362,7 @@ func BenchmarkHTTPRoundTrip(b *testing.B) {
 			w.WriteHeader(401)
 			return
 		}
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}))
 	defer server.Close()
 
@@ -396,8 +381,8 @@ func BenchmarkHTTPRoundTrip(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 		}
 	})
 
@@ -410,8 +395,8 @@ func BenchmarkHTTPRoundTrip(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 		}
 	})
 }
@@ -420,23 +405,18 @@ func BenchmarkHTTPRoundTrip(b *testing.B) {
 func BenchmarkJSONRPCRoundTrip(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req GetLedgerEntriesRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		resp := GetLedgerEntriesResponse{
 			Jsonrpc: "2.0",
 			ID:      req.ID,
 		}
 		resp.Result.LatestLedger = 12345
-		resp.Result.Entries = make([]struct {
-			Key                string `json:"key"`
-			Xdr                string `json:"xdr"`
-			LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-			LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
-		}, 1)
+		resp.Result.Entries = make([]LedgerEntryResult, 1)
 		resp.Result.Entries[0].Key = "test-key"
 		resp.Result.Entries[0].Xdr = "test-xdr"
 
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -459,9 +439,9 @@ func BenchmarkJSONRPCRoundTrip(b *testing.B) {
 			b.Fatal(err)
 		}
 		respBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		var rpcResp GetLedgerEntriesResponse
-		json.Unmarshal(respBytes, &rpcResp)
+		_ = json.Unmarshal(respBytes, &rpcResp)
 	}
 }

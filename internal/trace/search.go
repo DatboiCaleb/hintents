@@ -1,22 +1,18 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package trace
-
-import (
-	"strings"
-)
 
 // SearchEngine handles searching through trace nodes
 type SearchEngine struct {
 	query         string
 	caseSensitive bool
-	matches       []TraceNodeMatch
+	matches       []NodeMatch
 	currentIndex  int
 }
 
-// TraceNodeMatch represents a search match in the trace
-type TraceNodeMatch struct {
+// NodeMatch represents a search match in the trace
+type NodeMatch struct {
 	NodeID      string       // Unique identifier for the node
 	NodeIndex   int          // Position in flat trace list
 	MatchRanges []MatchRange // Multiple matches within same node
@@ -51,12 +47,12 @@ func (s *SearchEngine) GetQuery() string {
 }
 
 // Search performs the search across all trace nodes
-func (s *SearchEngine) Search(nodes []*TraceNode) []TraceNodeMatch {
+func (s *SearchEngine) Search(nodes []*TraceNode) []NodeMatch {
 	if s.query == "" {
 		return nil
 	}
 
-	s.matches = []TraceNodeMatch{}
+	s.matches = []NodeMatch{}
 
 	for i, node := range nodes {
 		match := s.searchNode(node, i)
@@ -73,8 +69,8 @@ func (s *SearchEngine) Search(nodes []*TraceNode) []TraceNodeMatch {
 }
 
 // searchNode searches within a single trace node
-func (s *SearchEngine) searchNode(node *TraceNode, index int) TraceNodeMatch {
-	match := TraceNodeMatch{
+func (s *SearchEngine) searchNode(node *TraceNode, index int) NodeMatch {
+	match := NodeMatch{
 		NodeID:      node.ID,
 		NodeIndex:   index,
 		NodeData:    node,
@@ -109,44 +105,30 @@ func (s *SearchEngine) searchNode(node *TraceNode, index int) TraceNodeMatch {
 	return match
 }
 
-// findInString finds all occurrences of query in the given string
+// findInString finds all occurrences of query in the given string using fuzzy matching
 func (s *SearchEngine) findInString(text, field string) []MatchRange {
 	if text == "" {
 		return nil
 	}
 
-	searchText := text
-	searchQuery := s.query
-
-	if !s.caseSensitive {
-		searchText = strings.ToLower(text)
-		searchQuery = strings.ToLower(s.query)
+	score, positions := FuzzyMatch(s.query, text, s.caseSensitive)
+	if score == -1 {
+		return nil
 	}
 
-	var ranges []MatchRange
-	offset := 0
-
-	for {
-		index := strings.Index(searchText[offset:], searchQuery)
-		if index == -1 {
-			break
-		}
-
-		actualIndex := offset + index
-		ranges = append(ranges, MatchRange{
-			Start: actualIndex,
-			End:   actualIndex + len(s.query),
-			Field: field,
-		})
-
-		offset = actualIndex + len(s.query)
+	if len(positions) == 0 {
+		return nil
 	}
 
-	return ranges
+	return []MatchRange{{
+		Start: positions[0],
+		End:   positions[len(positions)-1] + 1,
+		Field: field,
+	}}
 }
 
 // NextMatch moves to the next search match
-func (s *SearchEngine) NextMatch() *TraceNodeMatch {
+func (s *SearchEngine) NextMatch() *NodeMatch {
 	if len(s.matches) == 0 {
 		return nil
 	}
@@ -156,7 +138,7 @@ func (s *SearchEngine) NextMatch() *TraceNodeMatch {
 }
 
 // PreviousMatch moves to the previous search match
-func (s *SearchEngine) PreviousMatch() *TraceNodeMatch {
+func (s *SearchEngine) PreviousMatch() *NodeMatch {
 	if len(s.matches) == 0 {
 		return nil
 	}
@@ -170,7 +152,7 @@ func (s *SearchEngine) PreviousMatch() *TraceNodeMatch {
 }
 
 // CurrentMatch returns the current match
-func (s *SearchEngine) CurrentMatch() *TraceNodeMatch {
+func (s *SearchEngine) CurrentMatch() *NodeMatch {
 	if len(s.matches) == 0 || s.currentIndex < 0 {
 		return nil
 	}

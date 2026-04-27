@@ -1,4 +1,4 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package plugin
@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"testing"
 )
+
+var _ DecoderPlugin = (*mockDecoder)(nil)
 
 type mockDecoder struct {
 	name       string
@@ -34,8 +36,8 @@ func (m *mockDecoder) Decode(data []byte) (json.RawMessage, error) {
 	return json.RawMessage(`{"decoded": true}`), nil
 }
 
-func (m *mockDecoder) Metadata() PluginMetadata {
-	return PluginMetadata{
+func (m *mockDecoder) Metadata() Metadata {
+	return Metadata{
 		Name:       m.name,
 		Version:    m.version,
 		APIVersion: Version,

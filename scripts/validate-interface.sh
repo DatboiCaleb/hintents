@@ -1,11 +1,13 @@
 #!/bin/bash
-
-// Copyright (c) 2026 dotandev
-// SPDX-License-Identifier: MIT OR Apache-2.0
-
+# Copyright 2026 Erst Users
+# SPDX-License-Identifier: Apache-2.0
 
 # Validate simulator interface implementation
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
 
 echo "Validating simulator interface implementation..."
 
@@ -58,10 +60,3 @@ else
 fi
 
 echo "All validation checks passed!"
-echo "Implementation meets all requirements:"
-echo "   - Interface defined with correct signature"
-echo "   - Commands accept interface for dependency injection"
-echo "   - Mock runner available for testing"
-echo "   - Zero performance overhead"
-echo "   - Backward compatibility maintained"
-echo "   - Compile-time safety enforced"

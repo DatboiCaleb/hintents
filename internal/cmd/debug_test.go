@@ -1,9 +1,10 @@
-// Copyright 2025 Erst Users
+// Copyright 2026 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -108,8 +109,8 @@ func TestLoadOverrideState_RealWorldExample(t *testing.T) {
 		t.Fatalf("failed to marshal test data: %v", err)
 	}
 
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	if writeErr := os.WriteFile(tmpFile, data, 0644); writeErr != nil {
+		t.Fatalf("failed to write test file: %v", writeErr)
 	}
 
 	entries, err := loadOverrideState(tmpFile)
@@ -163,9 +164,14 @@ type MockRunner struct {
 	mock.Mock
 }
 
-func (m *MockRunner) Run(req *simulator.SimulationRequest) (*simulator.SimulationResponse, error) {
-	args := m.Called(req)
+func (m *MockRunner) Run(ctx context.Context, req *simulator.SimulationRequest) (*simulator.SimulationResponse, error) {
+	args := m.Called(ctx, req)
 	return args.Get(0).(*simulator.SimulationResponse), args.Error(1)
+}
+
+func (m *MockRunner) Close() error {
+	args := m.Called()
+	return args.Error(0)
 }
 
 func TestDebugCommand_Setup(t *testing.T) {
@@ -179,6 +185,55 @@ func TestDebugCommand_Setup(t *testing.T) {
 
 	rpcURLFlag := debugCmd.Flags().Lookup("rpc-url")
 	assert.NotNil(t, rpcURLFlag)
+
+	mockBaseFee := debugCmd.Flags().Lookup("mock-base-fee")
+	assert.NotNil(t, mockBaseFee)
+
+	mockGasPrice := debugCmd.Flags().Lookup("mock-gas-price")
+	assert.NotNil(t, mockGasPrice)
+
+	snapshots := debugCmd.Flags().Lookup("snapshots")
+	assert.NotNil(t, snapshots)
+	assert.Equal(t, "false", snapshots.DefValue)
+}
+
+func TestApplySimulationFeeMocks(t *testing.T) {
+	prevBaseFee := mockBaseFeeFlag
+	prevGasPrice := mockGasPriceFlag
+	t.Cleanup(func() {
+		mockBaseFeeFlag = prevBaseFee
+		mockGasPriceFlag = prevGasPrice
+	})
+
+	mockBaseFeeFlag = 321
+	mockGasPriceFlag = 99
+
+	req := &simulator.SimulationRequest{}
+	applySimulationFeeMocks(req)
+
+	if assert.NotNil(t, req.MockBaseFee) {
+		assert.Equal(t, uint32(321), *req.MockBaseFee)
+	}
+	if assert.NotNil(t, req.MockGasPrice) {
+		assert.Equal(t, uint64(99), *req.MockGasPrice)
+	}
+}
+
+func TestDeprecatedHostFunctionDetection(t *testing.T) {
+	name, ok := findDeprecatedHostFunction(`topic: Symbol("vec_unpack_to_linear_memory")`)
+	assert.True(t, ok)
+	assert.Equal(t, "vec_unpack_to_linear_memory", name)
+
+	_, ok = findDeprecatedHostFunction(`topic: Symbol("require_auth")`)
+	assert.False(t, ok)
+
+	event := simulator.DiagnosticEvent{
+		Topics: []string{`Symbol("fn_call")`},
+		Data:   `Symbol("bytes_copy_to_linear_memory")`,
+	}
+	name, ok = deprecatedHostFunctionInDiagnosticEvent(event)
+	assert.True(t, ok)
+	assert.Equal(t, "bytes_copy_to_linear_memory", name)
 }
 
 func TestMockRunner_ImplementsInterface(t *testing.T) {
@@ -197,14 +252,17 @@ func TestMockRunner_ImplementsInterface(t *testing.T) {
 		Events: []string{"test-event"},
 	}
 
-	mockRunner.On("Run", req).Return(expectedResp, nil)
+	ctx := context.Background()
+	mockRunner.On("Run", ctx, req).Return(expectedResp, nil)
+	mockRunner.On("Close").Return(nil)
 
 	// Call the mock
-	resp, err := mockRunner.Run(req)
+	resp, err := mockRunner.Run(ctx, req)
 
 	// Verify results
 	assert.NoError(t, err)
 	assert.Equal(t, expectedResp, resp)
+	assert.NoError(t, mockRunner.Close())
 	mockRunner.AssertExpectations(t)
 }
 
@@ -289,4 +347,31 @@ func TestExtractLedgerKeys(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Key not found in extracted keys")
+}
+
+func buildTestEnvelopeXdr(t *testing.T) string { //nolint:unused
+	t.Helper()
+
+	sourceAccount := xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
+
+	envelope := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+		V1: &xdr.TransactionV1Envelope{
+			Tx: xdr.Transaction{
+				SourceAccount: sourceAccount.ToMuxedAccount(),
+				Fee:           100,
+				SeqNum:        1,
+				Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+				Memo:          xdr.Memo{Type: xdr.MemoTypeMemoNone},
+				Operations:    []xdr.Operation{},
+				Ext:           xdr.TransactionExt{V: 0},
+			},
+			Signatures: []xdr.DecoratedSignature{},
+		},
+	}
+
+	envelopeBytes, err := envelope.MarshalBinary()
+	assert.NoError(t, err)
+
+	return base64.StdEncoding.EncodeToString(envelopeBytes)
 }
