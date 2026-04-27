@@ -1,6 +1,6 @@
 module github.com/dotandev/hintents
 
-go 1.22.0
+go 1.25.0
 
 require (
 	github.com/atotto/clipboard v0.1.4
